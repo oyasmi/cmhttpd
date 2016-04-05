@@ -1,5 +1,3 @@
-#include <sys/epoll.h>
-
 #ifndef __MAP
 #define __MAP
 
@@ -15,9 +13,8 @@ typedef struct conn_entry{
     unsigned int read_pos;
     unsigned int read_len;
     unsigned int write_pos;
-    unsigned int file_len;
+    long long file_len;
     char req_buf[REQBUFSIZE];
-    int http_code;
     char path[PATHBUFSIZE];
     hdl_func_t hdl_read;
     hdl_func_t hdl_write;

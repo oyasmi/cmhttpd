@@ -5,11 +5,15 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include "map.h"
+#include "parse.h"
 
 #define LISTEN_PORT 8000
 #define MAX_EVENTS 128
@@ -64,39 +68,64 @@ int setup_server_socket(int port) {
     return listen_sock;
 }
 
-/* int handle_http(int fd) */
-/* { */
-/*     char buf[4096]; */
-/*     int n = 0; */
-/*     while((n=read(fd, buf, sizeof(buf))) != 0){ */
-/*         printf("%s", buf); */
-/*         write(fd, "Hello World", 11); */
-/*         if(-1 == n){ */
-/*             if(errno == EAGAIN || errno == EWOULDBLOCK){ */
-/*                 break; */
-/*             }else{ */
-/*                 perror("read"); */
-/*                 close(fd); */
-/*                 return -1; */
-/*             } */
-/*         } */
-/*     } */
-/*     read(fd, buf, sizeof(buf)); */
-/*     printf("%s", buf); */
-/*     write(fd, "Hello World", 11); */
-/*     close(fd); */
-/*     return 0; */
-/* } */
-
 void *http_hdl(void* conn)
 {
+    static char* req_end = "\r\n\r\n";
     conn_t* c = (conn_t*)conn;
     int fd = c->fd;
-    read(fd, c->req_buf, sizeof(c->req_buf));
+    char* buf = c->req_buf+c->read_pos;
+    int n = read(fd, buf, REQBUFSIZE - c->read_pos);
+    if(n == 0){
+        close(fd);
+        map_del(map, fd);
+        return NULL;
+    }
+    buf[n] = '\0';
+    if(!strstr(buf, req_end)){
+        if(c->read_pos+n < REQBUFSIZE-1){
+            c->read_pos += n;
+        }else{
+            close(fd);
+            map_del(map, fd);
+            perror("req_buf overflow");
+        }
+        return NULL;
+    }
     printf("%s", c->req_buf);
-    write(fd, "Hello World", 11);
-    close(fd);
-    map_del(map, fd);
+
+    req_t* req = parse_req(buf);
+    if(strncmp(req->URI, "/", 3) == 0)
+        strncpy(req->URI, "/index.html", 12);
+    char* filepath = req->URI + 1;
+
+    struct stat fst;
+    int ret = stat(filepath, &fst);
+    if(ret == -1)
+        req->http_code = 404;
+    else{
+        req->http_code = 200;
+        req->file_len = fst.st_size;
+        c->file_len = fst.st_size;
+    }
+    char resp_hdr[RESPHDRBUFSIZE];
+    gen_resp(resp_hdr, RESPHDRBUFSIZE, req);
+    
+    write(fd, resp_hdr, strlen(resp_hdr));
+    if(req->http_code == 200){
+        c->afd = open(filepath, O_RDONLY);
+        if(c->afd == -1){
+            perror("error open target file");
+            exit(EXIT_FAILURE);
+        }
+        sendfile(fd, c->afd, 0, req->file_len);
+    }
+    if(req->keep_alive){
+        c->read_pos = 0;
+    }else{
+        close(fd);
+        map_del(map, fd);
+    }
+    free(req);
     return NULL;
 }
 
@@ -137,6 +166,7 @@ void *accept_hdl(void* conn)
 
 int main(int argc, char *argv[])
 {
+    chdir("www");
     for(int i=0; i<MAP_SIZE; ++i) map[i] = NULL;
     struct epoll_event evt;
     int listen_sock;
