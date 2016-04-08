@@ -94,6 +94,7 @@ void *http_hdl(void* conn)
     printf("%s", c->req_buf);
 
     req_t* req = parse_req(buf);
+    c->keep_alive = req->keep_alive;
     if(strncmp(req->URI, "/", 3) == 0)
         strncpy(req->URI, "/index.html", 12);
     char* filepath = req->URI + 1;
@@ -117,7 +118,25 @@ void *http_hdl(void* conn)
             perror("error open target file");
             exit(EXIT_FAILURE);
         }
-        sendfile(fd, c->afd, 0, req->file_len);
+        long bytes_sent = sendfile(fd, c->afd, NULL, req->file_len);
+        if(-1 == bytes_sent && errno != EAGAIN){
+            perror("error sendfile");
+            req->keep_alive = 0;
+        }else if(0 < bytes_sent){
+            if((c->write_pos += bytes_sent) < c->file_len){
+                struct epoll_event wevt;
+                wevt.events = EPOLLOUT;
+                wevt.data.fd = fd;
+                if(-1 == epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &wevt)){
+                    perror("epoll_ctl: mod EPOLLIN to EPOLLOUT");
+                    exit(EXIT_FAILURE);
+                }
+                free(req);
+                return NULL;
+            }else{
+                close(c->afd);
+            }
+        }
     }
     if(req->keep_alive){
         c->read_pos = 0;
@@ -131,6 +150,33 @@ void *http_hdl(void* conn)
 
 void *write_hdl(void* conn)
 {
+    conn_t* c = (conn_t*)conn;
+    int fd = c->fd;
+
+    long bytes_sent = sendfile(fd, c->afd, (off_t *)&c->write_pos, c->file_len - c->write_pos);
+    if(-1 == bytes_sent && errno != EAGAIN){
+        perror("error sendfile");
+        close(fd);
+        map_del(map, fd);
+    }else if(0 < bytes_sent){
+        if((c->write_pos += bytes_sent) < c->file_len){
+            ;
+        }else{
+            close(c->afd);
+            if(c->keep_alive){
+                struct epoll_event revt;
+                revt.events = EPOLLIN;
+                revt.data.fd = fd;
+                if(-1 == epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &revt)){
+                    perror("epoll_ctl: mod EPOLLOUT to EPOLLIN");
+                    exit(EXIT_FAILURE);
+                }
+            }else{
+                close(fd);
+                map_del(map, fd);
+            }
+        }
+    }
     return NULL;
 }
 
@@ -146,7 +192,7 @@ void *accept_hdl(void* conn)
         perror("accept");
         exit(EXIT_FAILURE);
     }
-    getnameinfo((struct sockaddr *)&client_addr, client_addr_len, chost, sizeof(chost), cport, sizeof(cport), NI_NUMERICHOST | NI_NUMERICSERV);
+    getnameinfo((struct sockaddr *)&client_addr, client_addr_len, chost, NI_MAXHOST, cport, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
     printf("Accepted conn from %s:%s\n", chost, cport);
     setnonblocking(conn_sock);
     struct epoll_event evt;

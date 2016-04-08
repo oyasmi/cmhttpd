@@ -10,12 +10,13 @@ typedef void* (*hdl_func_t) (void* conn);
 typedef struct conn_entry{
     int fd;
     int afd;
-    unsigned int read_pos;
-    unsigned int read_len;
-    unsigned int write_pos;
-    long long file_len;
+    long read_pos;
+    long read_len;
+    long write_pos;
+    long file_len;
     char req_buf[REQBUFSIZE];
     char path[PATHBUFSIZE];
+    short int keep_alive;
     hdl_func_t hdl_read;
     hdl_func_t hdl_write;
     struct conn_entry* next;
