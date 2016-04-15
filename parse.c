@@ -45,6 +45,8 @@ req_t *parse_req(char* buf)
     }
     req->http_code = 403;
     req->file_len = 0;
+    req->write_pos = 0;
+    req->afd = -1;
     return req;
 }
 
@@ -60,7 +62,40 @@ void to_upper(char* str)
 
 int gen_resp(char* buf, int buflen, req_t* req)
 {
-    char* fakeone = "HTTP/1.1 200 OK\r\nServer: cmhttpd\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n";
-    snprintf(buf, buflen, fakeone, req->file_len);
+    char* resp_hdr;
+    if(req->http_code == 200){
+        resp_hdr = "%s 200 OK\r\nServer: cmhttpd\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n";
+        snprintf(buf, buflen, resp_hdr, req->protover, req->file_len);
+    }else if(req->http_code == 404){
+        resp_hdr = "%s 404 Not Found\r\nServer:cmhttpd\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n";
+        snprintf(buf, buflen, resp_hdr, req->protover, 0);
+    }
+    return 0;
+}
+
+int regulate_URI(char* URI)
+{
+    int len = strlen(URI);
+    char buf[VALUEBUFSIZE2];
+
+    int i=0, j=0;
+    while(URI[i] != '\0'){
+        if(URI[i] == '.'){
+            if(URI[i+1] == '.' || URI[i+1] == '/'){
+                ++i;
+                continue;
+            }
+        }
+
+        buf[j++] = URI[i++];
+    }
+    if(buf[j-1] == '/'){
+        strncpy(buf+j, "/index.html", 12);
+    }else{
+        buf[j] = '\0';
+    }
+    len = strlen(buf);
+    strncpy(URI, buf, len+1);
+    
     return 0;
 }

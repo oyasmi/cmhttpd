@@ -13,7 +13,7 @@ conn_t *map_get(conn_t** map, int fd)
     }
     return NULL;
 }
-int map_set(conn_t** map, conn_t* conn)
+int map_put(conn_t** map, conn_t* conn)
 {
     int slot = conn->fd % MAP_SIZE;
     conn->next = map[slot];
@@ -47,11 +47,9 @@ conn_t *new_conn(int fd)
 {
     conn_t* conn = (conn_t*)malloc(sizeof(conn_t));
     conn->fd = fd;
-    conn->afd = -1;
     conn->read_pos = 0;
     conn->read_len = 0;
-    conn->write_pos = 0;
-    conn->file_len = 0;
+    conn->req = NULL;
     conn->next = NULL;
     return conn;
 }

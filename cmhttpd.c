@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include "cmhttpd.h"
 #include "map.h"
 #include "parse.h"
 
@@ -93,10 +94,10 @@ void *http_hdl(void* conn)
     }
     printf("%s", c->req_buf);
 
-    req_t* req = parse_req(buf);
-    c->keep_alive = req->keep_alive;
-    if(strncmp(req->URI, "/", 3) == 0)
-        strncpy(req->URI, "/index.html", 12);
+    c->req = parse_req(buf);
+    req_t* req = c->req;
+
+    regulate_URI(req->URI);
     char* filepath = req->URI + 1;
 
     struct stat fst;
@@ -106,24 +107,23 @@ void *http_hdl(void* conn)
     else{
         req->http_code = 200;
         req->file_len = fst.st_size;
-        c->file_len = fst.st_size;
     }
     char resp_hdr[RESPHDRBUFSIZE];
     gen_resp(resp_hdr, RESPHDRBUFSIZE, req);
     
     write(fd, resp_hdr, strlen(resp_hdr));
     if(req->http_code == 200){
-        c->afd = open(filepath, O_RDONLY);
-        if(c->afd == -1){
+        req->afd = open(filepath, O_RDONLY);
+        if(req->afd == -1){
             perror("error open target file");
             exit(EXIT_FAILURE);
         }
-        long bytes_sent = sendfile(fd, c->afd, NULL, req->file_len);
+        long bytes_sent = sendfile(fd, req->afd, NULL, req->file_len);
         if(-1 == bytes_sent && errno != EAGAIN){
             perror("error sendfile");
             req->keep_alive = 0;
         }else if(0 < bytes_sent){
-            if((c->write_pos += bytes_sent) < c->file_len){
+            if((req->write_pos += bytes_sent) < req->file_len){
                 struct epoll_event wevt;
                 wevt.events = EPOLLOUT;
                 wevt.data.fd = fd;
@@ -131,10 +131,11 @@ void *http_hdl(void* conn)
                     perror("epoll_ctl: mod EPOLLIN to EPOLLOUT");
                     exit(EXIT_FAILURE);
                 }
-                free(req);
                 return NULL;
             }else{
-                close(c->afd);
+                close(req->afd);
+                free(c->req);
+                c->req = NULL;
             }
         }
     }
@@ -144,7 +145,6 @@ void *http_hdl(void* conn)
         close(fd);
         map_del(map, fd);
     }
-    free(req);
     return NULL;
 }
 
@@ -152,18 +152,20 @@ void *write_hdl(void* conn)
 {
     conn_t* c = (conn_t*)conn;
     int fd = c->fd;
+    req_t* req = c->req;
 
-    long bytes_sent = sendfile(fd, c->afd, (off_t *)&c->write_pos, c->file_len - c->write_pos);
+    long bytes_sent = sendfile(fd, req->afd, (off_t *)&req->write_pos, req->file_len - req->write_pos);
     if(-1 == bytes_sent && errno != EAGAIN){
         perror("error sendfile");
         close(fd);
+        free(c->req);
         map_del(map, fd);
     }else if(0 < bytes_sent){
-        if((c->write_pos += bytes_sent) < c->file_len){
+        if((req->write_pos += bytes_sent) < req->file_len){
             ;
         }else{
-            close(c->afd);
-            if(c->keep_alive){
+            close(req->afd);
+            if(req->keep_alive){
                 struct epoll_event revt;
                 revt.events = EPOLLIN;
                 revt.data.fd = fd;
@@ -171,8 +173,11 @@ void *write_hdl(void* conn)
                     perror("epoll_ctl: mod EPOLLOUT to EPOLLIN");
                     exit(EXIT_FAILURE);
                 }
+                free(c->req);
+                c->req = NULL;
             }else{
                 close(fd);
+                free(c->req);
                 map_del(map, fd);
             }
         }
@@ -205,7 +210,7 @@ void *accept_hdl(void* conn)
     conn_t* client_conn = new_conn(conn_sock);
     client_conn->hdl_read = http_hdl;
     client_conn->hdl_write = write_hdl;
-    map_set(map, client_conn);
+    map_put(map, client_conn);
 
     return NULL;
 }
@@ -231,7 +236,7 @@ int main(int argc, char *argv[])
     }
     conn_t* conn = new_conn(listen_sock);
     conn->hdl_read = accept_hdl;
-    map_set(map, conn);
+    map_put(map, conn);
 
     int nfds;
     for(;;){
