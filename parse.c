@@ -62,14 +62,20 @@ void to_upper(char* str)
 
 int gen_resp(char* buf, int buflen, req_t* req)
 {
-    char* resp_hdr;
-    if(req->http_code == 200){
-        resp_hdr = "%s 200 OK\r\nServer: cmhttpd\r\nContent-Type: text/html; charset=UTF-8\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n";
-        snprintf(buf, buflen, resp_hdr, req->protover, req->file_len);
-    }else if(req->http_code == 404){
-        resp_hdr = "%s 404 Not Found\r\nServer:cmhttpd\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n";
-        snprintf(buf, buflen, resp_hdr, req->protover, 0);
-    }
+    char* resp_hdr = "%s %s\r\nServer: cmhttpd(pre-release, SJTU)\r\nContent-Type: %s\r\nConnection: %s\r\nContent-Length: %d\r\n\r\n";
+    char *http_code, *keep_alive, *mime_type;
+    if(req->http_code == 200)
+        http_code = "200 OK";
+    else if(req->http_code == 404)
+        http_code = "404 Not Found";
+    if(req->keep_alive)
+        keep_alive = "keep-alive";
+    else
+        keep_alive = "close";
+    mime_type = get_mime_type(req->URI);
+
+    snprintf(buf, buflen, resp_hdr, req->protover, http_code, mime_type, keep_alive, req->file_len);
+
     return 0;
 }
 
@@ -98,4 +104,55 @@ int regulate_URI(char* URI)
     strncpy(URI, buf, len+1);
     
     return 0;
+}
+
+mime_t* new_mime_t(char* ext, char* mime_type, struct mime_s* next)
+{
+    mime_t* t = (mime_t*)malloc(sizeof(mime_t));
+    int len = strlen(ext);
+    t->ext = (char*)malloc(len+1);
+    strncpy(t->ext, ext, len+1);
+    len = strlen(mime_type);
+    t->mime_type = (char*)malloc(len+1);
+    strncpy(t->mime_type, mime_type, len+1);
+    t->next = next;
+
+    return t;
+}
+
+mime_t* mime_type_list = NULL;
+char* get_mime_type(char* URI)
+{
+    mime_t* p;
+    if(!mime_type_list){
+        p = new_mime_t("gz", "application/x-gzip", NULL);
+        p = new_mime_t("jpeg", "image/jpeg", p);
+        p = new_mime_t("jpg", "image/jpeg", p);
+        p = new_mime_t("png", "image/png", p);
+        p = new_mime_t("gif", "image/gif", p);
+        p = new_mime_t("txt", "text/plain", p);
+        p = new_mime_t("ico", "image/x-icon", p);
+        p = new_mime_t("ogv", "video/ogg", p);
+        p = new_mime_t("js", "application/x-javascript", p);
+        p = new_mime_t("css", "text/css", p);
+        p = new_mime_t("htm", "text/html", p);
+        p = new_mime_t("html", "text/html", p);
+        mime_type_list = p;
+    }
+    p = mime_type_list;
+    
+    int n = strlen(URI) - 1;
+    char* ext;
+    for(; n>=0; --n){
+        if(URI[n] == '.')
+            ext = URI + n + 1;
+    }
+    n = strlen(ext);
+    while(p){
+        if(strncmp(ext, p->ext, n) == 0)
+            return p->mime_type;
+        else
+            p = p->next;
+    }
+    return "application/octet-stream";
 }
