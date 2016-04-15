@@ -19,6 +19,11 @@
 #define LISTEN_PORT 8000
 #define MAX_EVENTS 128
 
+int stop_flag = 0;
+void sig_handler(int signum){
+    stop_flag = 1;
+}
+
 conn_t* map[MAP_SIZE];
 struct epoll_event events[MAX_EVENTS];
 int epollfd;
@@ -217,6 +222,8 @@ void *accept_hdl(void* conn)
 
 int main(int argc, char *argv[])
 {
+    signal(SIGTERM, sig_handler);
+    signal(SIGINT, sig_handler);
     chdir("www");
     for(int i=0; i<MAP_SIZE; ++i) map[i] = NULL;
     struct epoll_event evt;
@@ -240,10 +247,17 @@ int main(int argc, char *argv[])
 
     int nfds;
     for(;;){
-        nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+        if(stop_flag)
+            break;
+
+        nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000);
         if (-1 == nfds) {
-            perror("epoll_wait");
-            exit(EXIT_FAILURE);
+            if(errno == EINTR)
+                continue;
+            else{
+                perror("epoll_wait");
+                exit(EXIT_FAILURE);
+            }
         }
 
         for(int i=0; i<nfds; ++i){
@@ -263,5 +277,8 @@ int main(int argc, char *argv[])
             }
         }
     }
+
+    close(listen_sock);
+    printf("\nserver closed successfully.\n");
     return 0;
 }
