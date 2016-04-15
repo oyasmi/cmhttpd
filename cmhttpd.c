@@ -123,12 +123,12 @@ void *http_hdl(void* conn)
             perror("error open target file");
             exit(EXIT_FAILURE);
         }
-        long bytes_sent = sendfile(fd, req->afd, NULL, req->file_len);
+        long bytes_sent = sendfile(fd, req->afd, (off_t *)&req->write_pos, req->file_len);
         if(-1 == bytes_sent && errno != EAGAIN){
             perror("error sendfile");
             req->keep_alive = 0;
         }else if(0 < bytes_sent){
-            if((req->write_pos += bytes_sent) < req->file_len){
+            if(req->write_pos < req->file_len){
                 struct epoll_event wevt;
                 wevt.events = EPOLLOUT;
                 wevt.data.fd = fd;
@@ -166,7 +166,7 @@ void *write_hdl(void* conn)
         free(c->req);
         map_del(map, fd);
     }else if(0 < bytes_sent){
-        if((req->write_pos += bytes_sent) < req->file_len){
+        if(req->write_pos < req->file_len){
             ;
         }else{
             close(req->afd);
