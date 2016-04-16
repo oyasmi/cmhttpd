@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <string.h>
 #include "parse.h"
 
@@ -120,26 +122,60 @@ mime_t* new_mime_t(char* ext, char* mime_type, struct mime_s* next)
     return t;
 }
 
-mime_t* mime_type_list = NULL;
+mime_t* build_mime_type_list(char* mime_type_filepath)
+{
+    mime_t* p = NULL;
+    char buf[70000];
+    int fd = open(mime_type_filepath, O_RDONLY);
+    int n;
+    if((n=read(fd, buf, 70000)) == -1){
+        perror("error read");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+    int i=0, j=0;
+    char *ext, *mime_type;
+    while(j <= n){
+        if(buf[j] != '\n')
+            ++j;
+        else{
+            buf[j] = '\0';
+            if(buf[i] == '#'){
+                ++j;
+                i = j;
+                continue;
+            }
+            mime_type = strtok(buf+i, " \t");
+            while((ext = strtok(NULL, " \t"))){
+                p = new_mime_t(ext, mime_type, p);
+            }
+            ++j;
+            i = j;
+        }
+    }
+    return p;
+}
+
 char* get_mime_type(char* URI)
 {
-    mime_t* p;
+    static mime_t* mime_type_list = NULL;
     if(!mime_type_list){
-        p = new_mime_t("gz", "application/x-gzip", NULL);
-        p = new_mime_t("jpeg", "image/jpeg", p);
-        p = new_mime_t("jpg", "image/jpeg", p);
-        p = new_mime_t("png", "image/png", p);
-        p = new_mime_t("gif", "image/gif", p);
-        p = new_mime_t("txt", "text/plain", p);
-        p = new_mime_t("ico", "image/x-icon", p);
-        p = new_mime_t("ogv", "video/ogg", p);
-        p = new_mime_t("js", "application/x-javascript", p);
-        p = new_mime_t("css", "text/css", p);
-        p = new_mime_t("htm", "text/html", p);
-        p = new_mime_t("html", "text/html", p);
-        mime_type_list = p;
+        /* p = new_mime_t("gz", "application/x-gzip", NULL); */
+        /* p = new_mime_t("jpeg", "image/jpeg", p); */
+        /* p = new_mime_t("jpg", "image/jpeg", p); */
+        /* p = new_mime_t("png", "image/png", p); */
+        /* p = new_mime_t("gif", "image/gif", p); */
+        /* p = new_mime_t("txt", "text/plain", p); */
+        /* p = new_mime_t("ico", "image/x-icon", p); */
+        /* p = new_mime_t("ogv", "video/ogg", p); */
+        /* p = new_mime_t("js", "application/x-javascript", p); */
+        /* p = new_mime_t("css", "text/css", p); */
+        /* p = new_mime_t("htm", "text/html", p); */
+        /* p = new_mime_t("html", "text/html", p); */
+        /* mime_type_list = p; */
+        mime_type_list = build_mime_type_list("../mime.types");
     }
-    p = mime_type_list;
+    
     
     int n = strlen(URI) - 1;
     char* ext;
@@ -148,11 +184,24 @@ char* get_mime_type(char* URI)
             ext = URI + n + 1;
     }
     n = strlen(ext);
+    int pos = 0;
+    mime_t* p = mime_type_list;
+    mime_t* q = p;
     while(p){
-        if(strncmp(ext, p->ext, n) == 0)
+        if(strncmp(ext, p->ext, n) == 0){
+            if(pos > 6)
+            {
+                q->next = p->next;
+                p->next = mime_type_list;
+                mime_type_list = p;
+            }
             return p->mime_type;
-        else
+        }
+        else{
+            q = p;
             p = p->next;
+            ++pos;
+        }
     }
     return "application/octet-stream";
 }
