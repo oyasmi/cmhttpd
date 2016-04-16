@@ -107,8 +107,12 @@ void *http_hdl(void* conn)
 
     struct stat fst;
     int ret = stat(filepath, &fst);
-    if(ret == -1)
+    if(ret == -1){
         req->http_code = 404;
+        filepath = "../default_html/404.html";
+        ret = stat(filepath, &fst);
+        req->file_len = fst.st_size;
+    }
     else{
         req->http_code = 200;
         req->file_len = fst.st_size;
@@ -117,7 +121,7 @@ void *http_hdl(void* conn)
     gen_resp(resp_hdr, RESPHDRBUFSIZE, req);
     
     write(fd, resp_hdr, strlen(resp_hdr));
-    if(req->http_code == 200){
+    if(req->http_code == 200 || req->http_code == 404){
         req->afd = open(filepath, O_RDONLY);
         if(req->afd == -1){
             perror("error open target file");
