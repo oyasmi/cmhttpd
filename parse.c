@@ -98,7 +98,7 @@ int regulate_URI(char* URI)
         buf[j++] = URI[i++];
     }
     if(buf[j-1] == '/'){
-        strncpy(buf+j, "/index.html", 12);
+        strncpy(buf+j, "index.html", 11);
     }else{
         buf[j] = '\0';
     }
@@ -160,22 +160,9 @@ char* get_mime_type(char* URI)
 {
     static mime_t* mime_type_list = NULL;
     if(!mime_type_list){
-        /* p = new_mime_t("gz", "application/x-gzip", NULL); */
-        /* p = new_mime_t("jpeg", "image/jpeg", p); */
-        /* p = new_mime_t("jpg", "image/jpeg", p); */
-        /* p = new_mime_t("png", "image/png", p); */
-        /* p = new_mime_t("gif", "image/gif", p); */
-        /* p = new_mime_t("txt", "text/plain", p); */
-        /* p = new_mime_t("ico", "image/x-icon", p); */
-        /* p = new_mime_t("ogv", "video/ogg", p); */
-        /* p = new_mime_t("js", "application/x-javascript", p); */
-        /* p = new_mime_t("css", "text/css", p); */
-        /* p = new_mime_t("htm", "text/html", p); */
-        /* p = new_mime_t("html", "text/html", p); */
-        /* mime_type_list = p; */
+        /* initialize list */
         mime_type_list = build_mime_type_list("../mime.types");
     }
-    
     
     int n = strlen(URI) - 1;
     char* ext;

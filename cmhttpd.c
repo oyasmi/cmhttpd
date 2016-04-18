@@ -97,10 +97,15 @@ void *http_hdl(void* conn)
         }
         return NULL;
     }
-    printf("%s", c->req_buf);
 
-    c->req = parse_req(buf);
+    c->req = parse_req(c->req_buf);
     req_t* req = c->req;
+    if(strncmp("GET", req->method, 3) != 0){ /* only support GET now */
+        free(c->req);
+        close(fd);
+        map_del(map, fd);
+        return NULL;
+    }
 
     regulate_URI(req->URI);
     char* filepath = req->URI + 1;
@@ -207,7 +212,7 @@ void *accept_hdl(void* conn)
         exit(EXIT_FAILURE);
     }
     getnameinfo((struct sockaddr *)&client_addr, client_addr_len, chost, NI_MAXHOST, cport, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
-    printf("Accepted conn from %s:%s\n", chost, cport);
+    /* printf("Accepted conn from %s:%s\n", chost, cport); */
     setnonblocking(conn_sock);
     struct epoll_event evt;
     evt.events = EPOLLIN;
@@ -233,6 +238,7 @@ int main(int argc, char *argv[])
     struct epoll_event evt;
     int listen_sock;
     listen_sock = setup_server_socket(LISTEN_PORT);
+    printf("listen on port %d ...\n", LISTEN_PORT);
     
     epollfd = epoll_create1(0);
     if (-1 == epollfd){
