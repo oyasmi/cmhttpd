@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/sendfile.h>
+#include <netinet/tcp.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -124,7 +125,9 @@ void *http_hdl(void* conn)
     }
     char resp_hdr[RESPHDRBUFSIZE];
     gen_resp(resp_hdr, RESPHDRBUFSIZE, req);
-    
+
+    int cork_on = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork_on, sizeof(cork_on));
     write(fd, resp_hdr, strlen(resp_hdr));
     if(req->http_code == 200 || req->http_code == 404){
         req->afd = open(filepath, O_RDONLY);
@@ -133,6 +136,10 @@ void *http_hdl(void* conn)
             exit(EXIT_FAILURE);
         }
         long bytes_sent = sendfile(fd, req->afd, (off_t *)&req->write_pos, req->file_len);
+        if(cork_on){
+            cork_on = 0;
+            setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork_on, sizeof(cork_on));
+        }
         if(-1 == bytes_sent && errno != EAGAIN){
             perror("error sendfile");
             req->keep_alive = 0;
@@ -155,6 +162,10 @@ void *http_hdl(void* conn)
     }
     if(req->keep_alive){
         c->read_pos = 0;
+        if(cork_on){
+            cork_on = 0;
+            setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork_on, sizeof(cork_on));
+        }
     }else{
         close(fd);
         map_del(map, fd);
@@ -272,7 +283,7 @@ int main(int argc, char *argv[])
 
         for(int i=0; i<nfds; ++i){
             if(events[i].events & EPOLLHUP || events[i].events & EPOLLERR){
-                printf("DEBUG: close socket");
+                //printf("DEBUG: close socket");
                 map_del(map, events[i].data.fd);
                 close(events[i].data.fd);
                 continue;
